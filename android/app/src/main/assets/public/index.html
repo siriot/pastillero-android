@@ -1165,11 +1165,14 @@
     </div>
 
     <!-- CONTROLADOR JAVASCRIPT NATIVO -->
-    <script type="module">
-        // CAPACITOR PLUGINS
-        const { LocalNotifications } = Capacitor.Plugins;
-        const { Haptics, ImpactStyle } = Capacitor.Plugins;
-        const { Filesystem, Directory, Encoding } = Capacitor.Plugins;
+    <script>
+        // CAPACITOR PLUGINS - acceso via window para compatibilidad con onclick handlers
+        function getCapacitorPlugins() {
+            if (window.Capacitor && window.Capacitor.Plugins) {
+                return window.Capacitor.Plugins;
+            }
+            return null;
+        }
 
         // CONFIGURACIÓN DE ESTADOS
         let medications = [];
@@ -1207,10 +1210,12 @@
 
             // Solicitar permisos de notificación al iniciar
             try {
-                const perms = await LocalNotifications.requestPermissions();
-                if (perms.display === 'granted') {
-                    // Reprogramar todas las alarmas activas al abrir la app
-                    medications.filter(m => m.active).forEach(m => scheduleNativeAlarm(m));
+                const plugins = getCapacitorPlugins();
+                if (plugins) {
+                    const perms = await plugins.LocalNotifications.requestPermissions();
+                    if (perms.display === 'granted') {
+                        medications.filter(m => m.active).forEach(m => scheduleNativeAlarm(m));
+                    }
                 }
             } catch(e) {}
 
@@ -1642,7 +1647,10 @@
             if (vibrationInterval) clearInterval(vibrationInterval);
 
             const vibratePattern = () => {
-                Haptics.vibrate({ duration: 500 });
+                const plugins = getCapacitorPlugins();
+                if (plugins) {
+                    plugins.Haptics.vibrate({ duration: 500 });
+                }
             };
 
             vibratePattern();
@@ -1659,7 +1667,8 @@
                 vibrationInterval = null;
             }
             if (alarmVibrateActive) {
-                Haptics.vibrate({ duration: 0 }).catch(() => {});
+                const plugins = getCapacitorPlugins();
+                if (plugins) plugins.Haptics.vibrate({ duration: 0 }).catch(() => {});
             }
         }
 
@@ -1752,9 +1761,11 @@
         }
 
         function sendSystemNotification(med) {
+            const plugins = getCapacitorPlugins();
+            if (!plugins) return;
             try {
                 const text = `${med.dosage} - ${med.freqType === 'interval' ? `Cada ${med.intervalHours} hs` : `A las ${med.fixedTime}`}`;
-                LocalNotifications.schedule({
+                plugins.LocalNotifications.schedule({
                     notifications: [{
                         id: Math.floor(Math.random() * 100000),
                         title: `Pastillero: Hora de ${med.name}`,
@@ -1769,16 +1780,17 @@
             }
         }
 
-        // Programar alarma nativa para próxima dosis
         async function scheduleNativeAlarm(med) {
+            const plugins = getCapacitorPlugins();
+            if (!plugins) return;
             try {
-                const perms = await LocalNotifications.requestPermissions();
+                const perms = await plugins.LocalNotifications.requestPermissions();
                 if (perms.display !== 'granted') return;
-
+                const numId = parseInt(med.id.replace('med_','')) % 2147483647;
                 const text = `${med.dosage} - ${med.freqType === 'interval' ? `Cada ${med.intervalHours} hs` : `A las ${med.fixedTime}`}`;
-                await LocalNotifications.schedule({
+                await plugins.LocalNotifications.schedule({
                     notifications: [{
-                        id: Math.abs(med.id.hashCode ? med.id.hashCode() : parseInt(med.id.replace('med_',''))),
+                        id: numId,
                         title: `💊 Hora de ${med.name}`,
                         body: text,
                         schedule: { at: new Date(med.nextDose), allowWhileIdle: true },
@@ -1792,11 +1804,12 @@
             }
         }
 
-        // Cancelar alarma nativa de un medicamento
         async function cancelNativeAlarm(med) {
+            const plugins = getCapacitorPlugins();
+            if (!plugins) return;
             try {
-                const numId = Math.abs(parseInt(med.id.replace('med_','')));
-                await LocalNotifications.cancel({ notifications: [{ id: numId }] });
+                const numId = parseInt(med.id.replace('med_','')) % 2147483647;
+                await plugins.LocalNotifications.cancel({ notifications: [{ id: numId }] });
             } catch(e) {}
         }
 
@@ -1896,32 +1909,32 @@
 
         // EXPORT / IMPORT COPIAS SEGURIDAD
         async function exportData() {
-            const payload = {
-                medications,
-                history,
-                alarmSoundActive,
-                alarmVibrateActive
-            };
-            try {
-                const fileName = `pastillero_backup_${Date.now()}.json`;
-                await Filesystem.writeFile({
-                    path: fileName,
-                    data: JSON.stringify(payload),
-                    directory: Directory.Documents,
-                    encoding: Encoding.UTF8
-                });
-                showToast(`Exportado: ${fileName}`);
-            } catch(e) {
-                // fallback para navegador
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
-                const dlAnchor = document.createElement('a');
-                dlAnchor.setAttribute("href", dataStr);
-                dlAnchor.setAttribute("download", `pastillero_backup_${Date.now()}.json`);
-                document.body.appendChild(dlAnchor);
-                dlAnchor.click();
-                dlAnchor.remove();
-                showToast("Exportado correctamente");
+            const payload = { medications, history, alarmSoundActive, alarmVibrateActive };
+            const plugins = getCapacitorPlugins();
+            if (plugins) {
+                try {
+                    const fileName = `pastillero_backup_${Date.now()}.json`;
+                    await plugins.Filesystem.writeFile({
+                        path: fileName,
+                        data: JSON.stringify(payload),
+                        directory: 'DOCUMENTS',
+                        encoding: 'utf8'
+                    });
+                    showToast(`Guardado en Documentos: ${fileName}`);
+                    return;
+                } catch(e) {
+                    console.log("Error filesystem:", e);
+                }
             }
+            // fallback navegador
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
+            const dlAnchor = document.createElement('a');
+            dlAnchor.setAttribute("href", dataStr);
+            dlAnchor.setAttribute("download", `pastillero_backup_${Date.now()}.json`);
+            document.body.appendChild(dlAnchor);
+            dlAnchor.click();
+            dlAnchor.remove();
+            showToast("Exportado correctamente");
         }
 
         function triggerImport() {
