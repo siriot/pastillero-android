@@ -1,0 +1,15 @@
+{
+	"appId": "com.pastillero.express",
+	"appName": "Pastillero Express",
+	"webDir": "www",
+	"android": {
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"LocalNotifications": {
+			"smallIcon": "ic_stat_alarm",
+			"iconColor": "#6750A4",
+			"sound": "alarm"
+		}
+	}
+}
